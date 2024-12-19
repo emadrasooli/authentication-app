@@ -1,12 +1,14 @@
 import type { NextAuthOptions } from "next-auth";
 import GitHubProvider from "next-auth/providers/github";
 import CredentialsProvider from "next-auth/providers/credentials";
-import { PrismaClient } from '@prisma/client';
-import bcrypt from 'bcryptjs';
+import { PrismaAdapter } from "@next-auth/prisma-adapter";
+import { PrismaClient } from "@prisma/client";
+import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
 export const options: NextAuthOptions = {
+  adapter: PrismaAdapter(prisma),
   providers: [
     GitHubProvider({
       clientId: process.env.GITHUB_ID as string,
@@ -15,46 +17,28 @@ export const options: NextAuthOptions = {
     CredentialsProvider({
       name: "Credentials",
       credentials: {
-        username: { label: "Username:", type: "text" },
-        email: { label: 'Email', type: 'text', placeholder: 'example@example.com' },
-        password: { label: "Password:", type: "password" },
+        email: { label: "Email", type: "text" },
+        password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
-        const prisma = new PrismaClient();
-
-        if (!credentials?.email || !credentials?.password || !credentials.username) {
-          throw new Error('Name, Email and Password are required');
+        if (!credentials?.email || !credentials?.password) {
+          return null;
         }
 
-        // Find user in the database
         const user = await prisma.user.findUnique({
           where: { email: credentials.email },
         });
 
-        if (!user) {
-          // If user does not exist, create a new user
-          const hashedPassword = await bcrypt.hash(credentials.password, 10);
-          const newUser = await prisma.user.create({
-            data: {
-              name: credentials.username,
-              email: credentials.email,
-              password: hashedPassword,
-            },
-          });
-          return { id: newUser.id, email: newUser.email, name: newUser.name };
+        if (user && bcrypt.compareSync(credentials.password, user.password)) {
+          return user;
+        } else {
+          return null;
         }
-
-        // Verify password
-        const isValid = await bcrypt.compare(credentials.password, user.password);
-        if (!isValid) throw new Error('Invalid password');
-
-        return { id: user.id, email: user.email, name: user.name };
       },
     }),
   ],
   callbacks: {
     async redirect({ url, baseUrl }) {
-
       if (url === "/dashboard") {
         return url;
       }
@@ -62,4 +46,3 @@ export const options: NextAuthOptions = {
     },
   },
 };
-
